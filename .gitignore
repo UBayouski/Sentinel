@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.forge/
+*.log
+.env
+build/
+scripts/.seed-state.json

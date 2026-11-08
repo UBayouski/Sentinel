@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "build", "declaration": false, "types": ["node"], "lib": ["ES2022", "DOM"] },
+  "include": ["src"]
+}

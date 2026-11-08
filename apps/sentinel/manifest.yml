@@ -1,0 +1,64 @@
+# Stale Doc Sentinel: Forge manifest.
+# Run `forge register` to replace app.id, then `forge lint` to validate module and scope names.
+modules:
+  trigger:
+    - key: issue-changed
+      function: on-issue-changed
+      events:
+        - avi:jira:updated:issue
+
+  consumer:
+    - key: doc-check-consumer
+      queue: doc-checks
+      function: check-worker
+
+  confluence:contentBylineItem:
+    - key: sentinel-byline
+      title: Doc freshness
+      resource: byline-ui
+      render: native
+      resolver:
+        function: ui-resolver
+
+  jira:issuePanel:
+    - key: sentinel-issue-panel
+      title: Docs affected by this issue
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      resource: issue-panel-ui
+      render: native
+      resolver:
+        function: ui-resolver
+
+  # Forge LLMs. Verify the module shape with `forge lint` (spike #2).
+  llm:
+    - key: sentinel-llm
+      model:
+        - claude
+
+  function:
+    - key: on-issue-changed
+      handler: index.onIssueChanged
+    - key: check-worker
+      handler: index.checkWorker
+      timeoutSeconds: 900
+    - key: ui-resolver
+      handler: index.uiResolver
+
+resources:
+  - key: byline-ui
+    path: src/frontend/byline.tsx
+  - key: issue-panel-ui
+    path: src/frontend/issue-panel.tsx
+
+permissions:
+  scopes:
+    - read:jira-work
+    - read:page:confluence
+    - write:page:confluence
+    - search:confluence
+    - storage:app
+
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/4984e5e6-fa64-4fe2-9a1b-2634ff2c3c4e
