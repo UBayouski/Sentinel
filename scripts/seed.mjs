@@ -6,6 +6,7 @@
 //   node scripts/seed.mjs --reset    restore the original description (to replay the demo)
 //
 // Reads ATLASSIAN_SITE, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN (and optional SEED_PROJECT, SEED_SPACE) from .env.
+// Environment variables win, e.g. ATLASSIAN_SITE=other.atlassian.net node scripts/seed.mjs
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,7 +20,8 @@ const SITE = required("ATLASSIAN_SITE").replace(/^https?:\/\//, "").replace(/\/$
 const AUTH = "Basic " + Buffer.from(`${required("ATLASSIAN_EMAIL")}:${required("ATLASSIAN_API_TOKEN")}`).toString("base64");
 const PROJECT = process.env.SEED_PROJECT ?? "PAY";
 const SPACE = process.env.SEED_SPACE ?? "PAYDOCS";
-const STATE_FILE = join(here, ".seed-state.json");
+// One state file per site, so the demo can be seeded on several sites (ATLASSIAN_SITE=... overrides .env).
+const STATE_FILE = join(here, `.seed-state.${SITE}.json`);
 const state = existsSync(STATE_FILE) ? JSON.parse(readFileSync(STATE_FILE, "utf8")) : {};
 const save = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
@@ -117,6 +119,18 @@ async function setDescription(text, label) {
   if (!state.issueKey) throw new Error("Run the seed first.");
   await api("PUT", `/rest/api/3/issue/${state.issueKey}`, { fields: { description: adfDoc([para(text)]) } });
   log(`${label} description of ${state.issueKey}`);
+  if (label === "reset" && state.pageId) {
+    // Undo fixes applied during a demo, as a new page version.
+    const page = await api("GET", `/wiki/api/v2/pages/${state.pageId}`);
+    await api("PUT", `/wiki/api/v2/pages/${state.pageId}`, {
+      id: state.pageId,
+      status: "current",
+      title: page.title,
+      body: { representation: "atlas_doc_format", value: JSON.stringify(specPage(state.issueKey)) },
+      version: { number: page.version.number + 1, message: "Demo reset" },
+    });
+    log(`restored page ${state.pageId} to the original spec`);
+  }
   if (label === "changed") console.log(`Watch: cd apps/sentinel && forge logs -e development\nThen open: ${state.pageUrl}`);
 }
 
@@ -124,7 +138,15 @@ async function setDescription(text, label) {
 
 function specPage(issueKey) {
   return adfDoc([
-    para(`Owner: Payments team. Tracks ${issueKey}. Last reviewed in Q3.`),
+    // Plain key for text search, plus a Jira smart link: a real issue ↔ page link for Teamwork Graph.
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: `Owner: Payments team. Tracks ${issueKey} (` },
+        { type: "inlineCard", attrs: { url: `https://${SITE}/browse/${issueKey}` } },
+        { type: "text", text: "). Last reviewed in Q3." },
+      ],
+    },
     heading(2, "Overview"),
     para("This page describes how the payments service handles failed card payments and refunds."),
     heading(2, "Retry policy"),

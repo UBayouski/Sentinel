@@ -4,4 +4,4 @@ dist/
 *.log
 .env
 build/
-scripts/.seed-state.json
+scripts/.seed-state*.json

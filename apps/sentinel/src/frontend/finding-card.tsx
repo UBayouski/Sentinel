@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, Button, Inline, Lozenge, SectionMessage, Stack, Text, TextArea } from "@forge/react";
+import { Box, Button, Inline, Lozenge, SectionMessage, Stack, Strike, Text, TextArea } from "@forge/react";
 import { call } from "./api";
 import type { StoredFinding } from "../types";
 
@@ -49,7 +49,9 @@ export function FindingCard({ pageId, issueKey, finding, onDone }: Props) {
           {finding.reason}
         </Text>
 
-        <Text color="color.text.subtle">Now: {truncate(finding.currentText)}</Text>
+        <Text color="color.text.subtle">
+          Now: {finding.suggestedText ? <Strike>{truncate(finding.currentText)}</Strike> : truncate(finding.currentText)}
+        </Text>
 
         {finding.suggestedText &&
           (editing ? (

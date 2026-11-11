@@ -2,14 +2,19 @@ import { FINDINGS_JSON_SCHEMA, type PromptBuilder } from "context-diff";
 
 /** Sentinel's private prompt. Kept out of the OSS library on purpose. */
 export const buildPrompt: PromptBuilder = (facts, sections) => {
+  // Facts without a `from` key come from an on-demand check: they state the current value only.
   const changes = facts
-    .map((f) => `- [${f.source}] ${f.field}: ${quote(f.from) ?? "(empty)"} → ${quote(f.to) ?? "(empty)"}`)
+    .map((f) =>
+      f.from === undefined
+        ? `- [${f.source}] ${f.field} (current value) → ${quote(f.to) ?? "(empty)"}`
+        : `- [${f.source}] ${f.field}: ${quote(f.from) ?? "(empty)"} → ${quote(f.to) ?? "(empty)"}`,
+    )
     .join("\n");
   const docs = sections
     .map((s) => `<section id="${s.id}" heading="${s.heading ?? "(intro)"}">\n${s.text}\n</section>`)
     .join("\n\n");
 
-  return `You keep team documentation accurate. A Jira issue just changed. Decide, for each documentation section below, whether the change makes it outdated.
+  return `You keep team documentation accurate. A Jira issue changed (or its current state is given). Decide, for each documentation section below, whether it is outdated against the issue.
 
 ## What changed
 ${changes}

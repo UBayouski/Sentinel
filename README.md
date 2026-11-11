@@ -1,10 +1,10 @@
 # Sentinel workspace
 
-Codegeist 2026 entry **Stale Doc Sentinel**, plus its open-source core library.
+Codegeist 2026 entry **Stale Doc Sentinel**. Its open-source core library, [`context-diff`](https://www.npmjs.com/package/context-diff), lives in its own repo.
 
 | Path | What | Visibility |
 |---|---|---|
-| `packages/context-diff` | Generic engine: ADF sections, change facts, prefilter, resolvers, LLM check runner | **Public** (Apache-2.0), extracted around Nov 22 |
+| [`context-diff`](https://github.com/UBayouski/context-diff) (npm dependency) | Generic engine: ADF sections, change facts, prefilter, resolvers, LLM check runner | **Public** (Apache-2.0), own repo |
 | `apps/sentinel` | Forge app: Jira trigger, async worker, Forge LLM adapter, private prompt, storage, UI | Private |
 
 Design doc: `../hackathon/codegeist-2026/sentinel-design.md`
@@ -14,7 +14,9 @@ Design doc: `../hackathon/codegeist-2026/sentinel-design.md`
 ```
 Jira issue updated → trigger (filter doc-relevant fields) → queue "doc-checks"
   → worker: find pages (remote links, CQL mentions) → split sections → prefilter → Forge LLM check
-  → store findings (Confluence page property "sentinel-findings") → Confluence byline popup (Apply / Edit / Dismiss) + Jira issue panel
+  → store findings (Confluence page property "sentinel-findings") → page banner + byline popup (Apply / Edit / Dismiss) + Jira issue panel
+
+Rovo agent "Doc Steward" → actions: find-stale-docs (GET), check-docs-now (TRIGGER), apply-doc-fix / dismiss-doc-finding (UPDATE, Rovo asks the user to confirm)
 ```
 
 Storage: Forge KVS is **per installation** (Jira and Confluence installs don't share it), so findings live on the page as a content property that both can read. Jira's KVS only keeps an issue → pages index for the issue panel.
@@ -25,16 +27,15 @@ The worker reads as the app. Users only see pages they can view, and fixes are w
 
 ```sh
 pnpm install
-pnpm test          # library unit tests
-pnpm typecheck     # library + app
-pnpm --filter context-diff build   # build the library (the app imports dist/)
+pnpm test          # app unit tests
+pnpm typecheck
 ```
 
 ## Run the app on a dev site
 
 1. Get a free developer site: http://go.atlassian.com/cloud-dev
 2. `npm install -g @forge/cli`, then `forge login` (needs an Atlassian API token)
-3. `pnpm --filter context-diff build`
+3. `pnpm install`
 4. `cd apps/sentinel && forge register --developer-space-id <id>` (done: app registered in Developer Space "IoT Forge")
 5. `forge lint`. It validates module and scope names. Fix whatever it flags first.
 6. `forge deploy && forge install` (pick Jira and Confluence on the same site)
@@ -43,6 +44,7 @@ pnpm --filter context-diff build   # build the library (the app imports dist/)
    - `node scripts/seed.mjs --change`: edits the issue's acceptance criteria, which triggers Sentinel
    - open the page → **Doc freshness** in the byline. `--reset` restores the original text to replay the demo
 8. Logs: `forge logs` (or `forge tunnel` for live local runs)
+9. Rovo: free developer sites may not show Rovo chat. A Forge demo site works around it: `forge site provision`, then `forge install --demo-site -p jira` (and `-p confluence`), then `ATLASSIAN_SITE=<demo>.atlassian.net node scripts/seed.mjs` (seed state is kept per site). Current demo site: one-atlas-nhfp.atlassian.net (expires 2027-02-06)
 
 ## Week-1 spikes (still open)
 
@@ -54,14 +56,28 @@ pnpm --filter context-diff build   # build the library (the app imports dist/)
 - [x] Apply as the user (2026-11-08): new page version authored by the user, only the target section changes, finding removed
 - [x] Dismiss (2026-11-08): removes the finding, page untouched
 - [x] Jira issue panel (2026-11-08): open it once via the Apps button under the issue title; reads findings from the page property
-- [ ] A Rovo agent hello-world (next milestone: Doc Steward agent + actions)
-- [ ] Teamwork Graph: `requestTeamworkGraph` exists in `@forge/api`; find the issue↔page query → becomes a third resolver
-- [ ] Confluence page banner module (nicer than byline) if available
+- [x] Doc Steward Rovo agent (2026-11-08, demo site): find-stale-docs and apply-doc-fix work from Rovo chat, with Rovo's confirm step
+- [x] Confluence page banner (2026-11-08): shows "N sections may be outdated after PAY-1" + section names + Review button; hidden when the page is fine
+- [x] Admin settings (2026-11-08): Jira admin page (projects, fields incl. custom, spaces, max pages, confidence, uncertain); trigger and worker read it from Jira storage
+- [x] Review UI (2026-11-08): Apply all, struck-through current text, issue panel refresh + last-checked time
+- [x] Teamwork Graph finder: both persisted queries registered (issue → page, page → issue) and set. Returns the demo page for PAY-1 (2026-11-10, `via teamwork-graph` in the logs)
 
-## Extracting the library (around Nov 22)
+## The open-source library
 
-```sh
-git subtree split --prefix=packages/context-diff -b context-diff-public
-# push that branch to a new public repo, then publish to npm
-```
-The app keeps depending on `context-diff` (switch `workspace:*` to the npm version).
+`context-diff` has its own repo (`../context-diff` → github.com/UBayouski/context-diff, with CI) and is published on npm. The app depends on it as `"context-diff": "^0.1.0"`. To change the library: edit it in its repo, bump the version, `npm publish`, then update the version here.
+
+## Teamwork Graph finder (one-time setup)
+
+New apps can't send raw Cypher, so the issue ↔ page queries (both link directions) are registered once as persisted queries. Registration only accepts a logged-in browser session (API tokens are rejected), and you must be a contributor on the app.
+
+1. Open your site (https://<site>.atlassian.net) in the browser, then DevTools → Console.
+2. Paste `scripts/register-twg-queries.js` and press Enter. It registers both queries for this app and prints the next command.
+3. Run the printed command, then redeploy:
+   ```sh
+   cd apps/sentinel
+   forge variables set -e development TWG_ISSUE_PAGES_QUERY <key1>,<key2>
+   forge deploy -e development
+   ```
+   New keys take about a minute to become usable (until then the graph answers `QUERY_NOT_FOUND`).
+
+Notes: the graph API is Preview and works only as a user, so the finder runs from the Rovo agent (`find-stale-docs`, `check-docs-now`), and pages it finds are passed to the worker in the check job. Scopes: `read:graph:issue:jira`, `read:graph:page:confluence`. Failures often return HTTP 200 with `errors`; the finder treats those as errors and the other finders still run.

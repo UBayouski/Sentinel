@@ -89,11 +89,14 @@ export async function getPageCheck(pageId: string, issue: string, as: Fetcher): 
   return (await getPageChecks(pageId, as)).find((c) => c.issueKey === issue);
 }
 
-/** Pages checked for an issue (Jira installation), limited to pages the caller can read. */
-export async function getIssueChecks(key: string, as: Fetcher): Promise<PageCheck[]> {
+/**
+ * Checks for an issue, limited to pages the caller can read. Looks at the pages in this
+ * installation's index plus any `extraPageIds` (e.g. found live, when the index lives elsewhere).
+ */
+export async function getIssueChecks(key: string, as: Fetcher, extraPageIds: string[] = []): Promise<PageCheck[]> {
   const index = await kvs.get<IssueIndex>(issueIndexKey(key));
-  if (!index) return [];
-  const checks = await Promise.all(index.pageIds.map((id) => getPageCheck(id, key, as)));
+  const ids = [...new Set([...(index?.pageIds ?? []), ...extraPageIds])];
+  const checks = await Promise.all(ids.map((id) => getPageCheck(id, key, as).catch(() => undefined)));
   return checks.filter((c): c is PageCheck => Boolean(c));
 }
 

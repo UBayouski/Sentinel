@@ -6,6 +6,8 @@ type Fetcher = ReturnType<typeof api.asApp> | ReturnType<typeof api.asUser>;
 export interface PageLookup {
   issueKey: string;
   parentKey?: string;
+  /** Only search these space keys (admin setting). */
+  spaces?: string[];
 }
 
 export interface Page {
@@ -13,6 +15,7 @@ export interface Page {
   title: string;
   version: number;
   url?: string;
+  spaceId?: string;
   doc: AdfDoc;
 }
 
@@ -42,24 +45,34 @@ export const remoteLinkResolver: Resolver<PageLookup> = {
   },
 };
 
-/** Pages whose text mentions the issue key (or its parent epic). */
+/**
+ * Pages whose text mentions the issue key (or its parent epic).
+ * Plain `text ~ "PAY-1"` is fuzzy (it matches any page with "pay" and "1"), so search for the exact
+ * phrase, then keep only pages whose body contains the key itself (not PAY-10).
+ */
 export const cqlResolver: Resolver<PageLookup> = {
   name: "cql-mentions",
   priority: 1,
-  async resolve({ issueKey, parentKey }) {
+  async resolve({ issueKey, parentKey, spaces }) {
     const keys = [issueKey, parentKey].filter((k): k is string => Boolean(k));
-    const cql = `type = page AND (${keys.map((k) => `text ~ "${k}"`).join(" OR ")})`;
+    const inSpaces = spaces?.length ? ` AND space in (${spaces.map((s) => `"${s}"`).join(",")})` : "";
+    const cql = `type = page${inSpaces} AND (${keys.map((k) => `text ~ "\\"${k}\\""`).join(" OR ")})`;
     const res = await api
       .asApp()
-      .requestConfluence(route`/wiki/rest/api/search?cql=${cql}&limit=10`)
-      .then((r) => json<{ results: SearchResult[]; _links?: { base?: string } }>(r));
-    return res.results.flatMap((r) =>
-      r.content?.id
-        ? [{ id: r.content.id, kind: "confluence:page", title: r.content.title, url: r.url ?? r.content._links?.webui }]
-        : [],
-    );
+      .requestConfluence(route`/wiki/rest/api/content/search?cql=${cql}&limit=10&expand=body.storage`)
+      .then((r) => json<{ results: ContentResult[]; _links?: { base?: string } }>(r));
+    return res.results.flatMap((p) => {
+      const body = p.body?.storage?.value ?? "";
+      if (!keys.some((k) => mentionsKey(body, k))) return [];
+      const url = res._links?.base && p._links?.webui ? res._links.base + p._links.webui : p._links?.webui;
+      return [{ id: p.id, kind: "confluence:page", title: p.title, ...(url ? { url } : {}) }];
+    });
   },
 };
+
+export function mentionsKey(text: string, key: string): boolean {
+  return new RegExp(`(^|[^A-Za-z0-9-])${key.replace(/[-]/g, "\\-")}(?![0-9])`).test(text);
+}
 
 export async function getPage(pageId: string, as: Fetcher = api.asApp()): Promise<Page> {
   const page = await as
@@ -69,6 +82,7 @@ export async function getPage(pageId: string, as: Fetcher = api.asApp()): Promis
     id: page.id,
     title: page.title,
     version: page.version.number,
+    ...(page.spaceId ? { spaceId: String(page.spaceId) } : {}),
     url: page._links?.base && page._links.webui ? page._links.base + page._links.webui : page._links?.webui,
     doc: JSON.parse(page.body.atlas_doc_format.value) as AdfDoc,
   };
@@ -102,14 +116,29 @@ interface RemoteLink {
   application?: { type?: string };
   object?: { url?: string; title?: string };
 }
-interface SearchResult {
-  url?: string;
-  content?: { id: string; title?: string; _links?: { webui?: string } };
+interface ContentResult {
+  id: string;
+  title: string;
+  body?: { storage?: { value?: string } };
+  _links?: { webui?: string };
 }
 interface PageResponse {
   id: string;
+  spaceId?: string | number;
   title: string;
   version: { number: number };
   body: { atlas_doc_format: { value: string } };
   _links?: { webui?: string; base?: string };
+}
+
+/** Page finders, best first. The worker and the Rovo agent use the same list. */
+export const PAGE_RESOLVERS: Resolver<PageLookup>[] = [remoteLinkResolver, cqlResolver];
+
+/** Space ids for space keys (v2 pages only carry the id). */
+export async function spaceIdsForKeys(keys: string[]): Promise<Set<string>> {
+  const res = await api
+    .asApp()
+    .requestConfluence(route`/wiki/api/v2/spaces?keys=${keys.join(",")}&limit=250`)
+    .then((r) => json<{ results: { id: string | number }[] }>(r));
+  return new Set(res.results.map((s) => String(s.id)));
 }

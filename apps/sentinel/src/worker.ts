@@ -1,28 +1,40 @@
 import api from "@forge/api";
 import type { AsyncEvent } from "@forge/events";
 import { actionable, checkClaims, prefilter, resolveLinkedContent, splitSections } from "context-diff";
-import { cqlResolver, getPage, remoteLinkResolver } from "./confluence";
+import { PAGE_RESOLVERS, getPage, spaceIdsForKeys } from "./confluence";
 import { hash } from "./hash";
 import { forgeLlm } from "./llm";
 import { buildPrompt } from "./prompt";
+import { getSettings } from "./settings";
 import { getPageCheck, savePageCheck } from "./store";
 import type { CheckJob, PageCheck, StoredFinding } from "./types";
 
-const MAX_PAGES = 8;
-
 /** Async consumer: find linked pages, check relevant sections, store findings. */
 export async function checkWorker(event: AsyncEvent<CheckJob>): Promise<void> {
-  const { issueKey, parentKey, facts } = event.body;
-  const lookup = parentKey ? { issueKey, parentKey } : { issueKey };
-  const { refs, errors } = await resolveLinkedContent(lookup, [remoteLinkResolver, cqlResolver], {
-    limit: MAX_PAGES,
+  const { issueKey, parentKey, facts, pageIds = [] } = event.body;
+  const settings = await getSettings();
+  const lookup = { issueKey, ...(parentKey ? { parentKey } : {}), ...(settings.spaces.length ? { spaces: settings.spaces } : {}) };
+  const { refs, errors } = await resolveLinkedContent(lookup, PAGE_RESOLVERS, {
+    limit: settings.maxPages,
   });
+  for (const id of pageIds) {
+    if (refs.length < settings.maxPages && !refs.some((r) => r.id === id)) {
+      refs.push({ id, kind: "confluence:page", via: ["requested"], rank: 99 });
+    }
+  }
   console.log(`[worker] ${issueKey}: ${refs.length} candidate page(s)`, refs.map((r) => `${r.id} via ${r.via.join("+")}`));
   for (const e of errors) console.warn(`resolver ${e.resolver} failed`, e.error);
+
+  // Linked pages can live in any space; CQL already filters, so filter the rest by space id.
+  const allowedSpaces = settings.spaces.length ? await spaceIdsForKeys(settings.spaces) : null;
 
   for (const ref of refs) {
     try {
       const page = await getPage(ref.id);
+      if (allowedSpaces && page.spaceId && !allowedSpaces.has(page.spaceId)) {
+        console.log(`[worker] page ${page.id}: space not in settings, skipped`);
+        continue;
+      }
       const sections = splitSections(page.doc);
       const candidates = prefilter(facts, sections).map((s) => s.section);
 
@@ -43,7 +55,7 @@ export async function checkWorker(event: AsyncEvent<CheckJob>): Promise<void> {
       const kept = previous.filter((f) => failedIds.has(f.sectionId));
 
       const byId = new Map(sections.map((s) => [s.id, s]));
-      const fresh: StoredFinding[] = actionable(findings, { includeUncertain: true }).flatMap((f) => {
+      const fresh: StoredFinding[] = actionable(findings, { minConfidence: settings.minConfidence, includeUncertain: settings.includeUncertain }).flatMap((f) => {
         const s = byId.get(f.sectionId);
         return s ? [{ ...f, heading: s.heading, currentText: s.text, textHash: hash(s.text), complex: s.complex }] : [];
       });

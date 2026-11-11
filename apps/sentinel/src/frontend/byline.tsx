@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import ForgeReconciler, { Heading, SectionMessage, Spinner, Stack, Text, useProductContext } from "@forge/react";
+import ForgeReconciler, { SectionMessage, Spinner, Text, useProductContext } from "@forge/react";
 import { call } from "./api";
 import type { PageCheck } from "../types";
-import { FindingCard } from "./finding-card";
+import { ReviewList } from "./review-list";
 
 /** Confluence byline popup: outdated sections on this page and their fixes. */
 function App() {
@@ -43,18 +43,7 @@ function App() {
     );
   }
 
-  return (
-    <Stack space="space.200">
-      <Heading size="small">
-        {total} section{total === 1 ? "" : "s"} may be outdated
-      </Heading>
-      {checks.flatMap((c) =>
-        c.findings.map((f) => (
-          <FindingCard key={`${c.issueKey}:${f.sectionId}`} pageId={c.pageId} issueKey={c.issueKey} finding={f} onDone={load} />
-        )),
-      )}
-    </Stack>
-  );
+  return <ReviewList checks={checks} onChanged={load} />;
 }
 
 ForgeReconciler.render(

@@ -39,8 +39,8 @@ importers:
         specifier: ^2.0.2
         version: 2.0.2(typescript@5.9.3)
       context-diff:
-        specifier: workspace:*
-        version: link:../../packages/context-diff
+        specifier: ^0.1.0
+        version: 0.1.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -51,8 +51,6 @@ importers:
       '@types/react':
         specifier: ^18.3.0
         version: 18.3.31
-
-  packages/context-diff: {}
 
 packages:
 
@@ -1156,6 +1154,10 @@ packages:
   cheerio@1.2.0:
     resolution: {integrity: sha512-WDrybc/gKFpTYQutKIK6UvfcuxijIZfMfXaYm8NMsPQxSYvf+13fXUJ4rztGGbJcBQ/GF55gvrZ0Bc0bj/mqvg==}
     engines: {node: '>=20.18.1'}
+
+  context-diff@0.1.0:
+    resolution: {integrity: sha512-xs7tJ/PFtWB/1mFvsRQQHLFkcCKDLnZ+Kt/DIJLnNmla5+RO15UceS6ijwqXKSoFiuRxf3Qstf4uhApZGM5ubw==}
+    engines: {node: '>=20'}
 
   convert-source-map@1.9.0:
     resolution: {integrity: sha512-ASFBup0Mz1uyiIjANan1jzLQami9z1PoYSZCiiYW2FczPbenXc45FZdBZLzOT+r6+iciuEModtmCti+hjaAk0A==}
@@ -3775,6 +3777,8 @@ snapshots:
       parse5-parser-stream: 7.1.2
       undici: 7.30.2
       whatwg-mimetype: 4.0.0
+
+  context-diff@0.1.0: {}
 
   convert-source-map@1.9.0: {}
 

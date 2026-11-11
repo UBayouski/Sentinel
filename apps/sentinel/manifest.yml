@@ -29,7 +29,125 @@ modules:
       resolver:
         function: ui-resolver
 
-  # Forge LLMs. Verify the module shape with `forge lint` (spike #2).
+  jira:adminPage:
+    - key: sentinel-settings
+      title: Stale Doc Sentinel
+      resource: settings-ui
+      render: native
+      resolver:
+        function: settings-resolver
+
+  confluence:pageBanner:
+    - key: sentinel-banner
+      resource: banner-ui
+      render: native
+      resolver:
+        function: ui-resolver
+
+  rovo:agent:
+    - key: doc-steward
+      name: Doc Steward
+      description: Finds Confluence docs that Jira changes made outdated, explains why, and applies reviewed fixes.
+      icon: resource:agent-icon;doc-steward.svg
+      prompt: resource:agent-prompt;doc-steward.md
+      conversationStarters:
+        - Which docs are stale because of this issue?
+        - Is this page still accurate?
+        - Check the docs for PAY-1 again
+        - Fix the outdated sections you found
+      actions:
+        - find-stale-docs
+        - check-docs-now
+        - apply-doc-fix
+        - dismiss-doc-finding
+
+  # The same actions as MCP tools on Atlassian's Rovo MCP server (Claude, Cursor, VS Code...).
+  rovo:mcp:
+    - key: sentinel-mcp
+      name: Stale Doc Sentinel
+      tools:
+        - find-stale-docs
+        - check-docs-now
+        - apply-doc-fix
+        - dismiss-doc-finding
+
+  action:
+    - key: find-stale-docs
+      name: Find stale docs
+      function: agent-find
+      actionVerb: GET
+      description: Lists Confluence pages linked to a Jira issue (or one page) and which sections Sentinel found outdated, with reasons and suggested replacement text.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: false
+          description: Jira issue key such as PAY-1. Leave empty to use the issue the user is viewing.
+        pageId:
+          title: Page id
+          type: string
+          required: false
+          description: Numeric Confluence page id, when the user asks about one page instead of an issue.
+    - key: check-docs-now
+      name: Check docs now
+      function: agent-check
+      actionVerb: TRIGGER
+      description: Starts a fresh check of the docs linked to a Jira issue against the issue's current summary and description. Results take about a minute.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: false
+          description: Jira issue key such as PAY-1. Leave empty to use the issue the user is viewing.
+    - key: apply-doc-fix
+      name: Apply doc fix
+      function: agent-apply
+      actionVerb: UPDATE
+      description: Replaces one outdated section of a Confluence page with the suggested text (or text the user approved). Creates a new page version as the user.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The Jira issue key of the finding, from find-stale-docs.
+        pageId:
+          title: Page id
+          type: string
+          required: true
+          description: The page id of the finding, from find-stale-docs.
+        sectionId:
+          title: Section id
+          type: string
+          required: true
+          description: The sectionId of the finding, from find-stale-docs.
+        text:
+          title: Replacement text
+          type: string
+          required: false
+          description: Only if the user edited the suggestion. Plain text, "- " for bullets. Leave empty to use the suggestion.
+    - key: dismiss-doc-finding
+      name: Dismiss doc finding
+      function: agent-dismiss
+      actionVerb: UPDATE
+      description: Marks one finding as not needed without changing the page.
+      inputs:
+        issueKey:
+          title: Issue key
+          type: string
+          required: true
+          description: The Jira issue key of the finding, from find-stale-docs.
+        pageId:
+          title: Page id
+          type: string
+          required: true
+          description: The page id of the finding, from find-stale-docs.
+        sectionId:
+          title: Section id
+          type: string
+          required: true
+          description: The sectionId of the finding, from find-stale-docs.
+
+  # Forge LLMs.
   llm:
     - key: sentinel-llm
       model:
@@ -43,12 +161,30 @@ modules:
       timeoutSeconds: 900
     - key: ui-resolver
       handler: index.uiResolver
+    - key: settings-resolver
+      handler: index.settingsResolver
+    - key: agent-find
+      handler: index.findStaleDocs
+    - key: agent-check
+      handler: index.checkDocsNow
+    - key: agent-apply
+      handler: index.applyDocFix
+    - key: agent-dismiss
+      handler: index.dismissDocFinding
 
 resources:
   - key: byline-ui
     path: src/frontend/byline.tsx
   - key: issue-panel-ui
     path: src/frontend/issue-panel.tsx
+  - key: banner-ui
+    path: src/frontend/banner.tsx
+  - key: settings-ui
+    path: src/frontend/settings.tsx
+  - key: agent-prompt
+    path: src/agent-prompt
+  - key: agent-icon
+    path: src/agent-icon
 
 permissions:
   scopes:
@@ -57,6 +193,8 @@ permissions:
     - write:page:confluence
     - search:confluence
     - storage:app
+    - read:graph:issue:jira
+    - read:graph:page:confluence
 
 app:
   runtime:

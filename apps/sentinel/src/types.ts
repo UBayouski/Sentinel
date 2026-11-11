@@ -5,6 +5,8 @@ export interface CheckJob extends Record<string, unknown> {
   issueKey: string;
   parentKey?: string;
   facts: ChangeFact[];
+  /** Extra pages to check, found by user-only finders (Teamwork Graph) before queueing. */
+  pageIds?: string[];
 }
 
 /** A finding plus what's needed to apply it safely later. */

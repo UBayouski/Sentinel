@@ -23,7 +23,9 @@ resolver.define("getPageFindings", async ({ context }) => {
 resolver.define("getIssueDocs", async ({ context }) => {
   const key = (context as Ctx).extension?.issue?.key;
   if (!key) return { checks: [], error: "Couldn't tell which issue this is." };
-  return { checks: await getIssueChecks(key, api.asUser()) };
+  const checks = await getIssueChecks(key, api.asUser());
+  console.log(`[ui] getIssueDocs ${key}:`, checks.map((c) => `${c.pageId} checked ${c.checkedAt} ${c.findings.length} finding(s)`));
+  return { checks };
 });
 
 resolver.define("applyFix", async ({ payload }) => {
